@@ -550,6 +550,37 @@ class TopoDataFunction:
             target_ts = acq_time_for_search.timestamp()
             return min(files, key=lambda f: abs(os.path.getmtime(f) - target_ts))
 
+        def _collect_thickness_candidates(search_dir: str, include_children: bool = False) -> List[str]:
+            if not os.path.isdir(search_dir):
+                return []
+            candidates: List[str] = []
+            try:
+                for filename in os.listdir(search_dir):
+                    file_lower = filename.lower()
+                    if file_lower.startswith(Config.THICKNESS_PREFIX.lower()) and file_lower.endswith(".csv"):
+                        candidates.append(os.path.join(search_dir, filename))
+            except OSError:
+                return candidates
+
+            if include_children:
+                try:
+                    subdirs = [
+                        os.path.join(search_dir, child)
+                        for child in os.listdir(search_dir)
+                        if os.path.isdir(os.path.join(search_dir, child))
+                    ]
+                except OSError:
+                    subdirs = []
+                for subdir in subdirs:
+                    try:
+                        for filename in os.listdir(subdir):
+                            file_lower = filename.lower()
+                            if file_lower.startswith(Config.THICKNESS_PREFIX.lower()) and file_lower.endswith(".csv"):
+                                candidates.append(os.path.join(subdir, filename))
+                    except OSError:
+                        continue
+            return candidates
+
         if thick_filename_local:
             search_paths_by_name = [
                 Config.ERO_ERROR_PATH_TEMPLATE,
@@ -571,37 +602,19 @@ class TopoDataFunction:
             if os.path.exists(fallback_path):
                 return fallback_path
             if device_name == "DPGE101":
-                candidate_dirs = [subfolder_path, os.path.dirname(subfolder_path)]
                 local_candidates = []
-                for candidate_dir in candidate_dirs:
-                    if not os.path.isdir(candidate_dir):
-                        continue
-                    try:
-                        local_candidates.extend(
-                            os.path.join(candidate_dir, filename)
-                            for filename in os.listdir(candidate_dir)
-                            if filename.startswith(Config.THICKNESS_PREFIX) and filename.endswith(".csv")
-                        )
-                    except OSError:
-                        continue
+                date_dir = os.path.dirname(subfolder_path)
+                local_candidates.extend(_collect_thickness_candidates(subfolder_path))
+                local_candidates.extend(_collect_thickness_candidates(date_dir, include_children=True))
                 selected = _pick_by_time(local_candidates)
                 if selected:
                     return selected
         else:
             if device_name == "DPGE101":
-                candidate_dirs = [subfolder_path, os.path.dirname(subfolder_path)]
                 local_candidates = []
-                for candidate_dir in candidate_dirs:
-                    if not os.path.isdir(candidate_dir):
-                        continue
-                    try:
-                        local_candidates.extend(
-                            os.path.join(candidate_dir, filename)
-                            for filename in os.listdir(candidate_dir)
-                            if filename.startswith(Config.THICKNESS_PREFIX) and filename.endswith(".csv")
-                        )
-                    except OSError:
-                        continue
+                date_dir = os.path.dirname(subfolder_path)
+                local_candidates.extend(_collect_thickness_candidates(subfolder_path))
+                local_candidates.extend(_collect_thickness_candidates(date_dir, include_children=True))
                 selected = _pick_by_time(local_candidates)
                 if selected:
                     return selected
