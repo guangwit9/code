@@ -54,6 +54,7 @@ class Config:
     OLD_BASE_PATH = r"\\FAKE_IP_4I9JQ1K2\Analytical_Machine2\07_FPMS"
 
     DPGE101_BASE_PATH =r"\\FAKE_IP_4I9JQ1K2\Analytical_Machine2\05_DPGE\02_DPGE101\01_Production"
+    DEBUG_THICKNESS_SEARCH = False
     
     ERO_PRE_PATH_TEMPLATE = r"\\FAKE_IP_4I9JQ1K2\Analytical_Machine2\07_FPMS\00_ERO_PRE\{device}\Success"
     ERO_POST_PATH_TEMPLATE = r"\\FAKE_IP_4I9JQ1K2\Analytical_Machine2\07_FPMS\00_ERO_POST\{device}"
@@ -542,6 +543,12 @@ class TopoDataFunction:
         Finds the correct thickness file by first checking locally and searching preferred remote locations,
         then searching all remote locations by acquisition time if the local file is missing.
         """
+        debug_enabled = Config.DEBUG_THICKNESS_SEARCH and device_name == "DPGE101"
+        if debug_enabled:
+            print(f"[DPGE101][THK] subfolder_path={subfolder_path}")
+            print(f"[DPGE101][THK] thick_filename_local={thick_filename_local}")
+            print(f"[DPGE101][THK] acq_time_for_search={acq_time_for_search}")
+
         def _pick_by_time(files: List[str]) -> Optional[str]:
             if not files:
                 return None
@@ -549,6 +556,46 @@ class TopoDataFunction:
                 return max(files, key=lambda f: os.path.getmtime(f))
             target_ts = acq_time_for_search.timestamp()
             return min(files, key=lambda f: abs(os.path.getmtime(f) - target_ts))
+
+        def _collect_thickness_candidates(
+            search_dir: str,
+            include_children: bool = False,
+            prefixes: Optional[List[str]] = None
+        ) -> List[str]:
+            if not os.path.isdir(search_dir):
+                return []
+            candidates: List[str] = []
+            normalized_prefixes = [re.sub(r"[^a-z0-9]", "", p.lower()) for p in (prefixes or [Config.THICKNESS_PREFIX])]
+            try:
+                for filename in os.listdir(search_dir):
+                    file_lower = filename.lower()
+                    normalized_name = re.sub(r"[^a-z0-9]", "", file_lower)
+                    if file_lower.endswith(".csv") and any(normalized_name.startswith(p) for p in normalized_prefixes):
+                        candidates.append(os.path.join(search_dir, filename))
+            except OSError:
+                return candidates
+
+            if include_children:
+                try:
+                    subdirs = [
+                        os.path.join(search_dir, child)
+                        for child in os.listdir(search_dir)
+                        if os.path.isdir(os.path.join(search_dir, child))
+                    ]
+                except OSError:
+                    subdirs = []
+                for subdir in subdirs:
+                    try:
+                        for filename in os.listdir(subdir):
+                            file_lower = filename.lower()
+                            normalized_name = re.sub(r"[^a-z0-9]", "", file_lower)
+                            if file_lower.endswith(".csv") and any(normalized_name.startswith(p) for p in normalized_prefixes):
+                                candidates.append(os.path.join(subdir, filename))
+                    except OSError:
+                        continue
+            if debug_enabled:
+                print(f"[DPGE101][THK] candidates in {search_dir} (children={include_children}) -> {len(candidates)}")
+            return candidates
 
         if thick_filename_local:
             search_paths_by_name = [
@@ -565,28 +612,47 @@ class TopoDataFunction:
 
                 potential_path = os.path.join(path_template.format(device=device_name), thick_filename_local)
                 if os.path.exists(potential_path):
+                    if debug_enabled:
+                        print(f"[DPGE101][THK] match by name: {potential_path}")
                     return potential_path
 
             fallback_path = os.path.join(subfolder_path, thick_filename_local)
             if os.path.exists(fallback_path):
+                if debug_enabled:
+                    print(f"[DPGE101][THK] match local fallback: {fallback_path}")
                 return fallback_path
-        else:
             if device_name == "DPGE101":
-                candidate_dirs = [subfolder_path, os.path.dirname(subfolder_path)]
                 local_candidates = []
-                for candidate_dir in candidate_dirs:
-                    if not os.path.isdir(candidate_dir):
-                        continue
-                    try:
-                        local_candidates.extend(
-                            os.path.join(candidate_dir, filename)
-                            for filename in os.listdir(candidate_dir)
-                            if filename.startswith(Config.THICKNESS_PREFIX) and filename.endswith(".csv")
-                        )
-                    except OSError:
-                        continue
+                date_dir = os.path.dirname(subfolder_path)
+                dpge_prefixes = [
+                    Config.THICKNESS_PREFIX.lower(),
+                    "thickness",
+                    Config.THK_SECTOR_PREFIX.lower(),
+                    "thickness sector height profile sectors 1 inner radius 150mm"
+                ]
+                local_candidates.extend(_collect_thickness_candidates(subfolder_path, prefixes=dpge_prefixes))
+                local_candidates.extend(_collect_thickness_candidates(date_dir, include_children=True, prefixes=dpge_prefixes))
                 selected = _pick_by_time(local_candidates)
                 if selected:
+                    if debug_enabled:
+                        print(f"[DPGE101][THK] match local candidates: {selected}")
+                    return selected
+        else:
+            if device_name == "DPGE101":
+                local_candidates = []
+                date_dir = os.path.dirname(subfolder_path)
+                dpge_prefixes = [
+                    Config.THICKNESS_PREFIX.lower(),
+                    "thickness",
+                    Config.THK_SECTOR_PREFIX.lower(),
+                    "thickness sector height profile sectors 1 inner radius 150mm"
+                ]
+                local_candidates.extend(_collect_thickness_candidates(subfolder_path, prefixes=dpge_prefixes))
+                local_candidates.extend(_collect_thickness_candidates(date_dir, include_children=True, prefixes=dpge_prefixes))
+                selected = _pick_by_time(local_candidates)
+                if selected:
+                    if debug_enabled:
+                        print(f"[DPGE101][THK] match local candidates (no name): {selected}")
                     return selected
 
         if acq_time_for_search:
@@ -600,7 +666,7 @@ class TopoDataFunction:
             if device_name == "DPGE101":
                 extra_search_dirs.extend([subfolder_path, os.path.dirname(subfolder_path)])
             
-            time_window = timedelta(minutes=1)
+            time_window = timedelta(minutes=5)
             start_time = acq_time_for_search - time_window
             end_time = acq_time_for_search + time_window
 
@@ -616,6 +682,8 @@ class TopoDataFunction:
                             try:
                                 mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
                                 if start_time <= mod_time <= end_time:
+                                    if debug_enabled:
+                                        print(f"[DPGE101][THK] match by time: {file_path}")
                                     return file_path
                             except OSError:
                                 continue
@@ -632,11 +700,15 @@ class TopoDataFunction:
                             try:
                                 mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
                                 if start_time <= mod_time <= end_time:
+                                    if debug_enabled:
+                                        print(f"[DPGE101][THK] match by time (local): {file_path}")
                                     return file_path
                             except OSError:
                                 continue
                 except OSError:
                     continue
+        if debug_enabled:
+            print("[DPGE101][THK] no thickness file matched.")
 
         return None
 
@@ -3138,9 +3210,12 @@ class DataReportFunction:
         return ax_top, ax_bot
 
     def _apply_slanted_xticks(self, ax):
-        ax.tick_params(axis='x', labelrotation=45)
+        ax.tick_params(axis='x', labelrotation=90, pad=12, direction='out', length=4)
+        ax.xaxis.set_ticks_position('bottom')
+        ax.spines['bottom'].set_position(('outward', 6))
         for label in ax.get_xticklabels():
-            label.set_ha('right')
+            label.set_ha('center')
+            label.set_va('top')
             label.set_rotation_mode('anchor')
 
     def _plot_line(self, base_col, x_col, folder, xlabel, dpi, show_xlabel):
