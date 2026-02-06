@@ -570,6 +570,23 @@ class TopoDataFunction:
             fallback_path = os.path.join(subfolder_path, thick_filename_local)
             if os.path.exists(fallback_path):
                 return fallback_path
+            if device_name == "DPGE101":
+                candidate_dirs = [subfolder_path, os.path.dirname(subfolder_path)]
+                local_candidates = []
+                for candidate_dir in candidate_dirs:
+                    if not os.path.isdir(candidate_dir):
+                        continue
+                    try:
+                        local_candidates.extend(
+                            os.path.join(candidate_dir, filename)
+                            for filename in os.listdir(candidate_dir)
+                            if filename.startswith(Config.THICKNESS_PREFIX) and filename.endswith(".csv")
+                        )
+                    except OSError:
+                        continue
+                selected = _pick_by_time(local_candidates)
+                if selected:
+                    return selected
         else:
             if device_name == "DPGE101":
                 candidate_dirs = [subfolder_path, os.path.dirname(subfolder_path)]
@@ -600,7 +617,7 @@ class TopoDataFunction:
             if device_name == "DPGE101":
                 extra_search_dirs.extend([subfolder_path, os.path.dirname(subfolder_path)])
             
-            time_window = timedelta(minutes=1)
+            time_window = timedelta(minutes=5)
             start_time = acq_time_for_search - time_window
             end_time = acq_time_for_search + time_window
 
