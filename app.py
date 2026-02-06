@@ -3155,9 +3155,10 @@ class DataReportFunction:
         return ax_top, ax_bot
 
     def _apply_slanted_xticks(self, ax):
-        ax.tick_params(axis='x', labelrotation=45)
+        ax.tick_params(axis='x', labelrotation=90, pad=8)
         for label in ax.get_xticklabels():
-            label.set_ha('left')
+            label.set_ha('center')
+            label.set_va('top')
             label.set_rotation_mode('anchor')
 
     def _plot_line(self, base_col, x_col, folder, xlabel, dpi, show_xlabel):
