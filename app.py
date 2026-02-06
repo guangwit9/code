@@ -550,14 +550,19 @@ class TopoDataFunction:
             target_ts = acq_time_for_search.timestamp()
             return min(files, key=lambda f: abs(os.path.getmtime(f) - target_ts))
 
-        def _collect_thickness_candidates(search_dir: str, include_children: bool = False) -> List[str]:
+        def _collect_thickness_candidates(
+            search_dir: str,
+            include_children: bool = False,
+            prefixes: Optional[List[str]] = None
+        ) -> List[str]:
             if not os.path.isdir(search_dir):
                 return []
             candidates: List[str] = []
+            normalized_prefixes = [p.lower() for p in (prefixes or [Config.THICKNESS_PREFIX])]
             try:
                 for filename in os.listdir(search_dir):
                     file_lower = filename.lower()
-                    if file_lower.startswith(Config.THICKNESS_PREFIX.lower()) and file_lower.endswith(".csv"):
+                    if file_lower.endswith(".csv") and any(file_lower.startswith(p) for p in normalized_prefixes):
                         candidates.append(os.path.join(search_dir, filename))
             except OSError:
                 return candidates
@@ -575,7 +580,7 @@ class TopoDataFunction:
                     try:
                         for filename in os.listdir(subdir):
                             file_lower = filename.lower()
-                            if file_lower.startswith(Config.THICKNESS_PREFIX.lower()) and file_lower.endswith(".csv"):
+                            if file_lower.endswith(".csv") and any(file_lower.startswith(p) for p in normalized_prefixes):
                                 candidates.append(os.path.join(subdir, filename))
                     except OSError:
                         continue
@@ -604,8 +609,9 @@ class TopoDataFunction:
             if device_name == "DPGE101":
                 local_candidates = []
                 date_dir = os.path.dirname(subfolder_path)
-                local_candidates.extend(_collect_thickness_candidates(subfolder_path))
-                local_candidates.extend(_collect_thickness_candidates(date_dir, include_children=True))
+                dpge_prefixes = [Config.THICKNESS_PREFIX.lower(), "thickness"]
+                local_candidates.extend(_collect_thickness_candidates(subfolder_path, prefixes=dpge_prefixes))
+                local_candidates.extend(_collect_thickness_candidates(date_dir, include_children=True, prefixes=dpge_prefixes))
                 selected = _pick_by_time(local_candidates)
                 if selected:
                     return selected
@@ -613,8 +619,9 @@ class TopoDataFunction:
             if device_name == "DPGE101":
                 local_candidates = []
                 date_dir = os.path.dirname(subfolder_path)
-                local_candidates.extend(_collect_thickness_candidates(subfolder_path))
-                local_candidates.extend(_collect_thickness_candidates(date_dir, include_children=True))
+                dpge_prefixes = [Config.THICKNESS_PREFIX.lower(), "thickness"]
+                local_candidates.extend(_collect_thickness_candidates(subfolder_path, prefixes=dpge_prefixes))
+                local_candidates.extend(_collect_thickness_candidates(date_dir, include_children=True, prefixes=dpge_prefixes))
                 selected = _pick_by_time(local_candidates)
                 if selected:
                     return selected
